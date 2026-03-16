@@ -27,7 +27,7 @@ export async function loadPlayer(_name: string, pin: string): Promise<CloudSave 
   };
 }
 
-export async function savePlayer(name: string, pin: string, save: CloudSave): Promise<void> {
+export async function savePlayer(_name: string, pin: string, save: CloudSave): Promise<void> {
   // Check if a record with this PIN already exists
   const { data: existing } = await supabase
     .from('players')
