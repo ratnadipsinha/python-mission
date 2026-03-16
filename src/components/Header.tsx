@@ -22,15 +22,35 @@ export default function Header({ xp, completedLevels, playerName, playerPhoto, o
 
   // Thrust animation triggers when XP changes
   const [thrusting, setThrusting] = useState(false);
+  const [idleShaking, setIdleShaking] = useState(false);
   const prevXpRef = useRef(xp);
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const resetIdleTimer = () => {
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    const delay = 15000 + Math.random() * 5000; // 15–20 seconds
+    idleTimerRef.current = setTimeout(() => {
+      setIdleShaking(true);
+      setTimeout(() => setIdleShaking(false), 2800); // 0.9s × 3 iterations
+    }, delay);
+  };
+
+  useEffect(() => {
+    resetIdleTimer();
+    return () => { if (idleTimerRef.current) clearTimeout(idleTimerRef.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (xp !== prevXpRef.current) {
       prevXpRef.current = xp;
       setThrusting(true);
+      setIdleShaking(false);
+      resetIdleTimer();
       const t = setTimeout(() => setThrusting(false), 700);
       return () => clearTimeout(t);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [xp]);
 
   return (
@@ -120,13 +140,15 @@ export default function Header({ xp, completedLevels, playerName, playerPhoto, o
             />
             {/* Rocket — clamp between 2% and 98% so it stays on the bar */}
             <div
-              className={`absolute text-lg transition-all duration-700 ${thrusting ? 'animate-thrust' : ''}`}
+              className={`absolute text-lg transition-all duration-700 ${thrusting ? 'animate-thrust' : idleShaking ? 'animate-rocket-idle' : ''}`}
               style={{
                 left: `${Math.min(Math.max(progress, 2), 96)}%`,
                 top: '50%',
                 transform: 'translateX(-50%) translateY(-50%) rotate(-90deg)',
                 filter: thrusting
                   ? 'drop-shadow(0 0 8px #ff6600) drop-shadow(0 -4px 6px #ffcc00)'
+                  : idleShaking
+                  ? 'drop-shadow(0 0 10px #a855f7)'
                   : 'drop-shadow(0 0 4px #00d4ff88)',
                 zIndex: 10,
               }}

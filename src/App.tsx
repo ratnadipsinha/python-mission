@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { LEVELS, getRank } from './levels/levels';
 import { runCode, initPyodide } from './engine/evaluator';
+import { savePlayer } from './cloudSave';
+import type { CloudSave } from './cloudSave';
+import { isConfigured } from './supabase';
 import Header from './components/Header';
 import ProblemCard from './components/ProblemCard';
 import CodeEditor from './components/CodeEditor';
@@ -20,19 +23,21 @@ interface SaveData {
   xp: number;
   currentLevelId: number;
   completedLevels: number[];
+  streak: number;
 }
 
 interface Profile {
   name: string;
   photo: string;
+  pin: string;
 }
 
-function loadSave(): SaveData {
+function loadLocalSave(): SaveData {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return JSON.parse(raw);
   } catch { /* ignore */ }
-  return { xp: 0, currentLevelId: 1, completedLevels: [] };
+  return { xp: 0, currentLevelId: 1, completedLevels: [], streak: 0 };
 }
 
 function loadProfile(): Profile | null {
@@ -43,16 +48,17 @@ function loadProfile(): Profile | null {
   return null;
 }
 
-function persistSave(data: SaveData) {
+function persistLocal(data: SaveData) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 }
 
 export default function App() {
   const [profile, setProfile] = useState<Profile | null>(loadProfile);
-  const save = loadSave();
-  const [xp, setXp] = useState(save.xp);
-  const [currentLevelId, setCurrentLevelId] = useState(save.currentLevelId);
-  const [completedLevels, setCompletedLevels] = useState<number[]>(save.completedLevels);
+  const localSave = loadLocalSave();
+  const [xp, setXp] = useState(localSave.xp);
+  const [currentLevelId, setCurrentLevelId] = useState(localSave.currentLevelId);
+  const [completedLevels, setCompletedLevels] = useState<number[]>(localSave.completedLevels);
+  const [streak, setStreak] = useState(localSave.streak ?? 0);
   const [code, setCode] = useState('');
   const [output, setOutput] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -65,8 +71,8 @@ export default function App() {
   const [showBadges, setShowBadges] = useState(false);
   const [xpGained, setXpGained] = useState(0);
   const [won, setWon] = useState(false);
-  const [streak, setStreak] = useState(0);
-  const prevRankRef = useRef(getRank(save.xp).name);
+  const prevRankRef = useRef(getRank(localSave.xp).name);
+  const problemRef = useRef<HTMLDivElement>(null);
 
   const level = LEVELS.find(l => l.id === currentLevelId) ?? LEVELS[0];
 
@@ -82,6 +88,21 @@ export default function App() {
     setAttempts(0);
     setXpGained(0);
   }, [currentLevelId]);
+
+  // Auto-save to cloud whenever progress changes
+  const cloudSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!profile || !isConfigured) return;
+    const data: SaveData = { xp, currentLevelId, completedLevels, streak };
+    persistLocal(data);
+    // Debounce cloud saves by 2s to avoid excessive writes
+    if (cloudSaveTimeoutRef.current) clearTimeout(cloudSaveTimeoutRef.current);
+    cloudSaveTimeoutRef.current = setTimeout(() => {
+      const save: CloudSave = { name: profile.name, xp, currentLevelId, completedLevels, streak };
+      savePlayer(profile.name, profile.pin, save).catch(console.error);
+    }, 2000);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [xp, currentLevelId, completedLevels, streak]);
 
   const handleRun = useCallback(async () => {
     if (!pyReady || loading) return;
@@ -112,18 +133,16 @@ export default function App() {
         setRankUpRank(newRank);
         prevRankRef.current = newRank.name;
       }
-
-      persistSave({ xp: newXp, currentLevelId, completedLevels: newCompleted });
     }
 
     setLoading(false);
-  }, [pyReady, loading, code, level, completedLevels, xp, streak, currentLevelId]);
+  }, [pyReady, loading, code, level, completedLevels, xp, streak]);
 
   const handleNext = () => {
     if (level.id === 10) { setWon(true); return; }
     const nextId = level.id + 1;
     setCurrentLevelId(nextId);
-    persistSave({ xp, currentLevelId: nextId, completedLevels });
+    setTimeout(() => problemRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
   };
 
   const handleReset = () => {
@@ -134,15 +153,28 @@ export default function App() {
     prevRankRef.current = 'Seedling';
   };
 
-  const handleWelcome = (name: string, photo: string) => {
-    const p = { name, photo };
+  const handleWelcome = (name: string, photo: string, pin: string, cloudSave?: CloudSave) => {
+    const p: Profile = { name, photo, pin };
     setProfile(p);
     localStorage.setItem(PROFILE_KEY, JSON.stringify(p));
+
+    if (cloudSave) {
+      // Resume from cloud
+      setXp(cloudSave.xp);
+      setCurrentLevelId(cloudSave.currentLevelId);
+      setCompletedLevels(cloudSave.completedLevels);
+      setStreak(cloudSave.streak ?? 0);
+      prevRankRef.current = getRank(cloudSave.xp).name;
+      persistLocal({
+        xp: cloudSave.xp,
+        currentLevelId: cloudSave.currentLevelId,
+        completedLevels: cloudSave.completedLevels,
+        streak: cloudSave.streak ?? 0,
+      });
+    }
   };
 
-  // Show welcome screen if no profile yet
   if (!profile) return <WelcomeScreen onStart={handleWelcome} />;
-
   if (won) return <WinScreen xp={xp} onReset={handleReset} />;
 
   return (
@@ -165,11 +197,19 @@ export default function App() {
         </div>
       )}
 
+      {isConfigured && (
+        <div className="max-w-3xl mx-auto px-4 pt-2">
+          <div className="rounded-xl px-3 py-1.5 text-xs text-center"
+            style={{ background: '#22c55e11', border: '1px solid #22c55e33', color: '#22c55e' }}>
+            ☁️ Cloud sync active — your progress saves automatically to all devices
+          </div>
+        </div>
+      )}
+
       <div className="max-w-6xl mx-auto px-4 py-6">
         <div className="flex gap-5 items-start">
-
-          {/* Left column — problem + editor + output */}
           <div className="flex-1 min-w-0 flex flex-col gap-5">
+            <div ref={problemRef} />
             <ProblemCard
               level={level.id}
               total={LEVELS.length}
@@ -179,7 +219,6 @@ export default function App() {
               mode={level.mode}
               instruction={level.instruction}
             />
-
             <CodeEditor
               code={code}
               onChange={setCode}
@@ -187,7 +226,6 @@ export default function App() {
               loading={loading || !pyReady}
               placeholder={`# Write your code here, ${profile.name}!`}
             />
-
             <OutputPanel
               output={output}
               error={error}
@@ -200,7 +238,6 @@ export default function App() {
             />
           </div>
 
-          {/* Right column — course refresher */}
           <div className="w-72 flex-shrink-0 sticky top-4">
             <RefresherPanel
               key={level.id}
@@ -210,21 +247,15 @@ export default function App() {
               youtubeUrl={level.youtubeUrl}
             />
           </div>
-
         </div>
       </div>
 
-      {rankUpRank && (
-        <RankUpModal rank={rankUpRank} onClose={() => setRankUpRank(null)} />
-      )}
+      {rankUpRank && <RankUpModal rank={rankUpRank} onClose={() => setRankUpRank(null)} />}
       {showMap && (
         <LevelMap
           currentLevel={currentLevelId}
           completedLevels={completedLevels}
-          onSelect={id => {
-            setCurrentLevelId(id);
-            persistSave({ xp, currentLevelId: id, completedLevels });
-          }}
+          onSelect={id => setCurrentLevelId(id)}
           onClose={() => setShowMap(false)}
         />
       )}

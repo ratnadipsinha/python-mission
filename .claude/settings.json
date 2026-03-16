@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cmd.exe /c 'npm install @supabase/supabase-js')",
+      "Bash(cmd.exe /c \"cd /d \"\"c:\\\\Users\\\\ratna\\\\apps\\\\python kids tool\"\" && npm install @supabase/supabase-js\")"
+    ]
+  }
+}
