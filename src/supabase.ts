@@ -24,8 +24,8 @@ import { createClient } from '@supabase/supabase-js';
 // 3. Go to Settings → API and copy your Project URL + anon key into .env.local
 // ──────────────────────────────────────────────────────────────────────────
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? '';
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY ?? '';
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? 'https://lnnmbwpidergmjtufeeg.supabase.co';
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY ?? 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxubm1id3BpZGVyZ21qdHVmZWVnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2MzE3MTQsImV4cCI6MjA4OTIwNzcxNH0.re1cEQ__JdET0_gARi2oF9QIHQLkW3pYrhBtiP72BhA';
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-export const isConfigured = SUPABASE_URL !== '' && SUPABASE_URL !== 'https://your-project-id.supabase.co';
+export const isConfigured = true;
